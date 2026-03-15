@@ -217,8 +217,8 @@ const BANDS = [
   { fc:2000,  label:'2k'  }, { fc:4000,  label:'4k'  },
   { fc:8000,  label:'8k'  }, { fc:16000, label:'16k' },
 ];
-const DB_MIN      = 30;      // display floor (dB)
-const DB_MAX      = 120;     // display ceiling (dB)
+const DB_MIN      = 0;       // display floor (dB)
+const DB_MAX      = 100;     // display ceiling (dB)
 const DB_RANGE    = DB_MAX - DB_MIN;
 const REF_LEVEL   = 90;      // dBFS→dBSPL offset (device-dependent; user calibrates)
 const HIST_LEN    = 300;     // 30 s @ 10 fps
@@ -489,44 +489,52 @@ function renderMeterBar() {
   const ctx    = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
 
-  const R = 6;
+  const R        = 6;
+  const TICK_H   = H;           // ticks usam altura total
+  const LABEL_Y  = H - 2;      // baseline dos números
 
-  // Track background
+  // ── Track background ──────────────────────────
   rrect(ctx, 0, 0, W, H, R);
   ctx.fillStyle = C.outlineV;
   ctx.fill();
 
-  if (!running || currentDb <= DB_MIN) return;
+  // ── Filled bar (só quando há sinal) ──────────
+  if (running && currentDb > DB_MIN) {
+    const frac  = Math.max(0, Math.min(1, (currentDb - DB_MIN) / DB_RANGE));
+    const fillW = Math.max(R * 2, W * frac);
 
-  // Colored gradient bar
-  const frac = Math.max(0, Math.min(1, (currentDb - DB_MIN) / DB_RANGE));
-  const fillW = Math.max(R * 2, W * frac);
+    const grad = ctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0,                             C.green);
+    grad.addColorStop((70  - DB_MIN) / DB_RANGE,     '#8BC34A');
+    grad.addColorStop((80  - DB_MIN) / DB_RANGE,     C.yellow);
+    grad.addColorStop((90  - DB_MIN) / DB_RANGE,     C.orange);
+    grad.addColorStop((100 - DB_MIN) / DB_RANGE,     C.red);
+    grad.addColorStop(1,                             '#B71C1C');
 
-  const grad = ctx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0,                             C.green);
-  grad.addColorStop((70 - DB_MIN) / DB_RANGE,      '#8BC34A');
-  grad.addColorStop((80 - DB_MIN) / DB_RANGE,      C.yellow);
-  grad.addColorStop((90 - DB_MIN) / DB_RANGE,      C.orange);
-  grad.addColorStop((100 - DB_MIN) / DB_RANGE,     C.red);
-  grad.addColorStop(1,                             '#B71C1C');
+    rrect(ctx, 0, 0, fillW, H, R);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
 
-  rrect(ctx, 0, 0, fillW, H, R);
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // Threshold marker at 85 dB
+  // ── Threshold marker 85 dB (sempre visível) ──
   const markX = W * (85 - DB_MIN) / DB_RANGE;
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillStyle = 'rgba(255,255,255,0.20)';
   ctx.fillRect(markX - 1, 0, 2, H);
 
-  // Scale ticks
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.font = '8px Roboto';
+  // ── Scale ticks — SEMPRE visíveis ────────────
+  ctx.font      = '8px Roboto';
   ctx.textAlign = 'center';
-  for (let db = 40; db <= 110; db += 10) {
-    const x = W * (db - DB_MIN) / DB_RANGE;
-    ctx.fillRect(x, H - 6, 1, 6);
-    if (db % 20 === 0) ctx.fillText(db, x, H - 8);
+  for (let db = 0; db <= 100; db += 10) {
+    const x   = W * (db - DB_MIN) / DB_RANGE;
+    const isMajor = (db % 20 === 0);
+    // tick line: branco sobre barra, escuro fora
+    ctx.fillStyle = 'rgba(255,255,255,0.30)';
+    ctx.fillRect(x - 0.5, 0, 1, isMajor ? H : H * 0.45);
+    // label nos múltiplos de 20
+    if (isMajor) {
+      ctx.fillStyle = 'rgba(255,255,255,0.70)';
+      ctx.fillText(db, x, LABEL_Y);
+    }
   }
 }
 
