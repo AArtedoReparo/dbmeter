@@ -262,7 +262,7 @@ let lastHistTs = 0;
 let running    = false;
 
 let audioCtx, analyser, animFrame;
-let freqData;
+let freqData, timeData;
 let sampleRate = 44100;
 let fftSize    = 8192;
 let binWidth   = sampleRate / fftSize;
@@ -318,6 +318,7 @@ async function startAudio() {
     fftSize    = analyser.fftSize;
     binWidth   = sampleRate / fftSize;
     freqData   = new Float32Array(analyser.frequencyBinCount);
+    timeData   = new Float32Array(analyser.fftSize);
 
     audioCtx.createMediaStreamSource(stream).connect(analyser);
 
@@ -355,16 +356,27 @@ function processFrame(ts) {
   if (!running || !analyser) return;
   analyser.getFloatFrequencyData(freqData);
 
-  // ── Overall weighted level ──────────────────
-  let totalPow = 0;
+  // ── Overall weighted level ──────────────────────────────────────────────────
+  // RMS time-domain (preciso) + correção espectral de ponderação do FFT
+  analyser.getFloatTimeDomainData(timeData);
+  let sumSq = 0;
+  for (let i = 0; i < timeData.length; i++) sumSq += timeData[i] * timeData[i];
+  const rms  = Math.sqrt(sumSq / timeData.length);
+  const dbFS = 20 * Math.log10(Math.max(rms, 1e-10));
+
+  // Weighting correction: delta espectral (ponderado vs flat)
+  let wPow = 0, uPow = 0;
   for (let i = 1; i < freqData.length; i++) {
+    if (!isFinite(freqData[i])) continue;
     const f = i * binWidth;
-    totalPow += Math.pow(10, (freqData[i] + weightDb(f)) / 10);
+    const p = Math.pow(10, freqData[i] / 10);
+    uPow += p;
+    wPow += p * Math.pow(10, weightDb(f) / 10);
   }
-  // Normalize by bin count → average spectral density, then apply REF
-  const dbRaw = totalPow > 0
-    ? 10 * Math.log10(totalPow / freqData.length) + calOffset + REF_LEVEL
-    : DB_MIN;
+  const weightCorr = (weighting !== 'Z' && uPow > 0 && wPow > 0)
+    ? 10 * Math.log10(wPow / uPow) : 0;
+
+  const dbRaw  = dbFS + weightCorr + calOffset + REF_LEVEL;
   currentDb = isFinite(dbRaw) ? Math.max(DB_MIN, Math.min(DB_MAX, dbRaw)) : DB_MIN;
 
   // ── MIN / MAX / AVG ─────────────────────────
@@ -385,7 +397,7 @@ function processFrame(ts) {
 
     const corr = useMicCurve ? micCurve[b] : 0;
     const bd   = n > 0 && pow > 0
-      ? 10 * Math.log10(pow / n) + calOffset + REF_LEVEL + corr
+      ? 10 * Math.log10(pow) + calOffset + REF_LEVEL + corr
       : DB_MIN - 5;
     bandDb[b] = isFinite(bd) ? Math.max(DB_MIN - 10, Math.min(DB_MAX, bd)) : DB_MIN - 5;
 
