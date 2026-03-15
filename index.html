@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>dB Meter</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<style>
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+/* ─── M3 Expressive — dark seed teal ─── */
+:root {
+  --md-primary:            #4DD0E1;
+  --md-on-primary:         #003740;
+  --md-primary-container:  #004E59;
+  --md-on-primary-cont:    #A2EEFF;
+  --md-surface:            #0F1719;
+  --md-surf-c-low:         #141C1E;
+  --md-surf-c:             #1B2527;
+  --md-surf-c-high:        #222E31;
+  --md-on-surface:         #DEE4E5;
+  --md-on-surface-var:     #859EA1;
+  --md-outline:            #3F5A5E;
+  --md-outline-var:        #243A3D;
+  --md-error:              #FF5449;
+  --nav-h:                 72px;
+}
+
+html, body { width:100%; height:100%; overflow:hidden; background:var(--md-surface); color:var(--md-on-surface); font-family:'Roboto',sans-serif; user-select:none; }
+
+/* ─── Layout ─── */
+#content { position:fixed; top:0; left:0; right:0; bottom:var(--nav-h); display:flex; flex-direction:column; overflow:hidden; }
+.tab { display:none; flex-direction:column; width:100%; height:100%; }
+.tab.active { display:flex; }
+
+/* ─── Bottom nav (M3 Expressive pill indicators) ─── */
+#nav { position:fixed; bottom:0; left:0; right:0; height:var(--nav-h); background:var(--md-surf-c); border-top:1px solid var(--md-outline-var); display:flex; align-items:center; padding:0 4px; z-index:100; gap:2px; }
+.nav-btn { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 0 4px; border:none; background:none; cursor:pointer; color:var(--md-on-surface-var); font-family:'Roboto',sans-serif; font-size:10px; font-weight:500; letter-spacing:0.3px; transition:color .2s; }
+.nav-btn.active { color:var(--md-primary); }
+.nav-pill { width:60px; height:30px; border-radius:15px; display:flex; align-items:center; justify-content:center; transition:background .2s; }
+.nav-btn.active .nav-pill { background:var(--md-primary-container); }
+.nav-ico { font-size:21px; font-family:'Material Icons Round'; font-weight:normal; line-height:1; }
+
+/* ─── Shared ─── */
+.section-title { font-size:11px; font-weight:500; letter-spacing:1.5px; text-transform:uppercase; color:var(--md-on-surface-var); }
+.card { background:var(--md-surf-c); border-radius:20px; padding:16px; }
+
+/* ─── TAB: METER ─── */
+#tab-meter { align-items:center; justify-content:center; gap:14px; padding:16px 20px; }
+.weight-badge { padding:4px 14px; border-radius:10px; background:var(--md-primary-container); color:var(--md-on-primary-cont); font-size:12px; font-weight:600; letter-spacing:1.5px; }
+.db-number { font-size:96px; font-weight:300; line-height:1; letter-spacing:-5px; font-variant-numeric:tabular-nums; transition:color .25s; color:var(--md-on-surface); }
+.db-unit { font-size:13px; letter-spacing:3px; color:var(--md-on-surface-var); margin-top:3px; }
+#meter-canvas { width:100%; height:44px; display:block; border-radius:12px; }
+.stats-row { display:flex; gap:10px; width:100%; }
+.stat-card { flex:1; background:var(--md-surf-c); border-radius:16px; padding:10px 6px; display:flex; flex-direction:column; align-items:center; gap:2px; }
+.stat-lbl { font-size:10px; letter-spacing:1.2px; color:var(--md-on-surface-var); }
+.stat-val { font-size:21px; font-weight:500; font-variant-numeric:tabular-nums; }
+.fab { width:156px; height:52px; border-radius:26px; border:none; cursor:pointer; background:var(--md-primary); color:var(--md-on-primary); font-size:15px; font-weight:600; font-family:'Roboto',sans-serif; display:flex; align-items:center; justify-content:center; gap:8px; transition:opacity .15s, transform .1s; }
+.fab:active { transform:scale(.96); }
+.fab.stop { background:var(--md-error); color:#fff; }
+.fab .ico { font-family:'Material Icons Round'; font-size:20px; line-height:1; }
+
+/* ─── TAB: SPECTRUM ─── */
+#tab-spectrum { padding:14px 14px 10px; }
+#spectrum-canvas { flex:1; min-height:0; width:100%; display:block; }
+
+/* ─── TAB: HISTORY ─── */
+#tab-history { padding:14px 14px 8px; }
+.history-hdr { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+.history-live { font-size:11px; color:var(--md-on-surface-var); }
+.history-live b { font-size:18px; font-weight:600; color:var(--md-primary); font-variant-numeric:tabular-nums; }
+#history-canvas { flex:1; min-height:0; width:100%; display:block; }
+.hint { font-size:10px; color:var(--md-on-surface-var); text-align:center; margin-top:5px; opacity:.7; }
+
+/* ─── TAB: SETTINGS ─── */
+#tab-settings { padding:14px; gap:12px; overflow-y:auto; }
+
+/* Segmented button */
+.seg-group { display:flex; gap:6px; }
+.seg-btn { flex:1; padding:10px 0; border-radius:12px; border:1.5px solid var(--md-outline); background:none; color:var(--md-on-surface-var); font-family:'Roboto',sans-serif; font-size:15px; font-weight:500; cursor:pointer; transition:all .18s; }
+.seg-btn.on { background:var(--md-primary-container); color:var(--md-on-primary-cont); border-color:var(--md-primary); }
+
+/* Slider */
+.slider-wrap { display:flex; align-items:center; gap:10px; margin-top:10px; }
+.sl-edge { font-size:11px; color:var(--md-on-surface-var); min-width:24px; text-align:center; }
+.sl-val { font-size:12px; font-weight:600; color:var(--md-primary); min-width:52px; text-align:right; font-variant-numeric:tabular-nums; }
+input[type=range] { flex:1; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--md-outline-var); outline:none; cursor:pointer; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:22px; height:22px; border-radius:50%; background:var(--md-primary); box-shadow:0 2px 6px rgba(0,0,0,.4); }
+
+/* Toggle */
+.toggle-row { display:flex; align-items:center; justify-content:space-between; }
+.toggle-lbl { font-size:14px; }
+.toggle { width:50px; height:28px; border-radius:14px; background:var(--md-outline); cursor:pointer; position:relative; transition:background .2s; flex-shrink:0; }
+.toggle.on { background:var(--md-primary); }
+.toggle::after { content:''; position:absolute; width:22px; height:22px; border-radius:50%; background:#fff; top:3px; left:3px; transition:left .2s; box-shadow:0 1px 4px rgba(0,0,0,.3); }
+.toggle.on::after { left:25px; }
+
+/* Mic curve */
+#mc-sliders { display:flex; flex-direction:column; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--md-outline-var); }
+.mc-row { display:flex; align-items:center; gap:8px; }
+.mc-fc { font-size:11px; color:var(--md-on-surface-var); min-width:32px; text-align:right; }
+
+/* Info box */
+.info-box { background:var(--md-primary-container); border-radius:12px; padding:10px 12px; font-size:11px; color:var(--md-on-primary-cont); line-height:1.5; }
+</style>
+</head>
+<body>
+
+<div id="content">
+
+  <!-- ─── METER ─── -->
+  <div id="tab-meter" class="tab active">
+    <span id="weight-badge" class="weight-badge">dBA</span>
+    <div style="display:flex;flex-direction:column;align-items:center">
+      <div id="db-number" class="db-number">---</div>
+      <div class="db-unit">dB SPL</div>
+    </div>
+    <canvas id="meter-canvas" height="44"></canvas>
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-lbl">MIN</div><div class="stat-val" id="s-min">---</div></div>
+      <div class="stat-card"><div class="stat-lbl">AVG</div><div class="stat-val" id="s-avg">---</div></div>
+      <div class="stat-card"><div class="stat-lbl">MAX</div><div class="stat-val" id="s-max">---</div></div>
+    </div>
+    <button id="fab" class="fab" onclick="toggleAudio()">
+      <span class="ico">mic</span>Iniciar
+    </button>
+  </div>
+
+  <!-- ─── SPECTRUM ─── -->
+  <div id="tab-spectrum" class="tab">
+    <div class="section-title" style="margin-bottom:8px">Espectro — Bandas de Oitava</div>
+    <canvas id="spectrum-canvas"></canvas>
+  </div>
+
+  <!-- ─── HISTORY ─── -->
+  <div id="tab-history" class="tab">
+    <div class="history-hdr">
+      <div class="section-title">Histórico — 30 s</div>
+      <div class="history-live"><b id="h-cur">---</b> dB</div>
+    </div>
+    <canvas id="history-canvas"></canvas>
+    <div class="hint">Pressione e segure para resetar</div>
+  </div>
+
+  <!-- ─── SETTINGS ─── -->
+  <div id="tab-settings" class="tab">
+    <!-- Weighting -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:10px">Ponderação</div>
+      <div class="seg-group">
+        <button class="seg-btn on" data-w="A" onclick="setWeighting(this)">A</button>
+        <button class="seg-btn"    data-w="C" onclick="setWeighting(this)">C</button>
+        <button class="seg-btn"    data-w="Z" onclick="setWeighting(this)">Z (Flat)</button>
+      </div>
+    </div>
+
+    <!-- Calibration -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:2px">Calibração</div>
+      <div class="slider-wrap">
+        <span class="sl-edge">-20</span>
+        <input type="range" id="cal-sl" min="-20" max="20" step="0.5" value="0" oninput="onCalChange(this)">
+        <span class="sl-edge">+20</span>
+        <span class="sl-val" id="cal-lbl">0.0 dB</span>
+      </div>
+    </div>
+
+    <!-- Mic Curve -->
+    <div class="card">
+      <div class="toggle-row">
+        <span class="toggle-lbl">Curva do Microfone</span>
+        <div id="mc-toggle" class="toggle" onclick="toggleMicCurve()"></div>
+      </div>
+      <div id="mc-sliders" style="display:none"></div>
+    </div>
+
+    <!-- Info -->
+    <div class="info-box">
+      ⚠️ Microfones de smartwatch e smartphone precisam de calibração. Use uma fonte de referência conhecida (ex.: 94 dB @ 1 kHz) para ajustar o offset de calibração.
+    </div>
+  </div>
+
+</div><!-- #content -->
+
+<!-- ─── Navigation ─── -->
+<nav id="nav">
+  <button class="nav-btn active" data-tab="meter" onclick="switchTab(this)">
+    <div class="nav-pill"><span class="nav-ico">graphic_eq</span></div>Meter
+  </button>
+  <button class="nav-btn" data-tab="spectrum" onclick="switchTab(this)">
+    <div class="nav-pill"><span class="nav-ico">equalizer</span></div>Spectrum
+  </button>
+  <button class="nav-btn" data-tab="history" onclick="switchTab(this)">
+    <div class="nav-pill"><span class="nav-ico">timeline</span></div>History
+  </button>
+  <button class="nav-btn" data-tab="settings" onclick="switchTab(this)">
+    <div class="nav-pill"><span class="nav-ico">tune</span></div>Settings
+  </button>
+</nav>
+
+<script>
+/* ═══════════════════════════════════════════════
+   TELEGRAM INIT
+═══════════════════════════════════════════════ */
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+/* ═══════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════ */
+const BANDS = [
+  { fc:125,   label:'125' }, { fc:250,   label:'250' },
+  { fc:500,   label:'500' }, { fc:1000,  label:'1k'  },
+  { fc:2000,  label:'2k'  }, { fc:4000,  label:'4k'  },
+  { fc:8000,  label:'8k'  }, { fc:16000, label:'16k' },
+];
+const DB_MIN      = 30;      // display floor (dB)
+const DB_MAX      = 120;     // display ceiling (dB)
+const DB_RANGE    = DB_MAX - DB_MIN;
+const REF_LEVEL   = 90;      // dBFS→dBSPL offset (device-dependent; user calibrates)
+const HIST_LEN    = 300;     // 30 s @ 10 fps
+const PEAK_HOLD   = 90;      // frames before peak starts decaying (~1.5 s @ 60fps)
+const PEAK_DECAY  = 0.25;    // dB/frame after hold
+
+// Canvas palette (hardcoded for render performance)
+const C = {
+  primary:    '#4DD0E1',
+  primCont:   '#004E59',
+  surfC:      '#1B2527',
+  surfCH:     '#222E31',
+  onSurf:     '#DEE4E5',
+  onSurfVar:  '#859EA1',
+  outlineV:   '#243A3D',
+  green:      '#4CAF50',
+  yellow:     '#FFB74D',
+  orange:     '#FF7043',
+  red:        '#EF5350',
+};
+
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+let weighting  = 'A';
+let calOffset  = 0;
+let micCurve   = new Array(8).fill(0);
+let useMicCurve = false;
+
+let currentDb  = DB_MIN;
+let minDb      = null;
+let maxDb      = null;
+let avgSum     = 0, avgCount = 0;
+
+let bandDb     = new Float32Array(8).fill(DB_MIN);
+let bandPeak   = new Float32Array(8).fill(DB_MIN);
+let peakHold   = new Int32Array(8).fill(0);
+
+let history    = [];
+let lastHistTs = 0;
+let running    = false;
+
+let audioCtx, analyser, animFrame;
+let freqData;
+let sampleRate = 44100;
+let fftSize    = 8192;
+let binWidth   = sampleRate / fftSize;
+
+/* ═══════════════════════════════════════════════
+   IEC 61672 WEIGHTING (identical to Wear OS app)
+═══════════════════════════════════════════════ */
+function aWeightDb(f) {
+  if (f < 10) return -100;
+  const f2 = f * f;
+  const Ra = (12194**2 * f2 * f2) /
+    ((f2 + 20.6**2) * Math.sqrt((f2 + 107.7**2) * (f2 + 737.9**2)) * (f2 + 12194**2));
+  return 20 * Math.log10(Ra) + 2.0;
+}
+function cWeightDb(f) {
+  if (f < 10) return -100;
+  const f2 = f * f;
+  const Rc = (12194**2 * f2) / ((f2 + 20.6**2) * (f2 + 12194**2));
+  return 20 * Math.log10(Rc) + 0.062;
+}
+function weightDb(f) {
+  if (weighting === 'A') return aWeightDb(f);
+  if (weighting === 'C') return cWeightDb(f);
+  return 0; // Z
+}
+
+/* ═══════════════════════════════════════════════
+   AUDIO ENGINE
+═══════════════════════════════════════════════ */
+async function toggleAudio() {
+  if (running) stopAudio(); else await startAudio();
+}
+
+async function startAudio() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation:  false,
+        noiseSuppression:  false,
+        autoGainControl:   false,
+        channelCount:      1,
+        sampleRate:        44100,
+      },
+      video: false,
+    });
+
+    audioCtx    = new (window.AudioContext || window.webkitAudioContext)();
+    sampleRate  = audioCtx.sampleRate;
+
+    analyser    = audioCtx.createAnalyser();
+    analyser.fftSize               = 8192;
+    analyser.smoothingTimeConstant = 0.6;
+    fftSize    = analyser.fftSize;
+    binWidth   = sampleRate / fftSize;
+    freqData   = new Float32Array(analyser.frequencyBinCount);
+
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+    running = true;
+    updateFab();
+    animFrame = requestAnimationFrame(processFrame);
+  } catch (e) {
+    alert('Erro ao acessar microfone:\n' + e.message);
+  }
+}
+
+function stopAudio() {
+  running = false;
+  cancelAnimationFrame(animFrame);
+  audioCtx?.close();
+  audioCtx = analyser = null;
+  updateFab();
+}
+
+function updateFab() {
+  const fab = document.getElementById('fab');
+  if (running) {
+    fab.innerHTML = '<span class="ico">stop</span>Parar';
+    fab.classList.add('stop');
+  } else {
+    fab.innerHTML = '<span class="ico">mic</span>Iniciar';
+    fab.classList.remove('stop');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PROCESSING LOOP
+═══════════════════════════════════════════════ */
+function processFrame(ts) {
+  if (!running || !analyser) return;
+  analyser.getFloatFrequencyData(freqData);
+
+  // ── Overall weighted level ──────────────────
+  let totalPow = 0;
+  for (let i = 1; i < freqData.length; i++) {
+    const f = i * binWidth;
+    totalPow += Math.pow(10, (freqData[i] + weightDb(f)) / 10);
+  }
+  // Normalize by bin count → average spectral density, then apply REF
+  const dbRaw = totalPow > 0
+    ? 10 * Math.log10(totalPow / freqData.length) + calOffset + REF_LEVEL
+    : DB_MIN;
+  currentDb = isFinite(dbRaw) ? Math.max(DB_MIN, Math.min(DB_MAX, dbRaw)) : DB_MIN;
+
+  // ── MIN / MAX / AVG ─────────────────────────
+  if (minDb === null || currentDb < minDb) minDb = currentDb;
+  if (maxDb === null || currentDb > maxDb) maxDb = currentDb;
+  avgSum += currentDb; avgCount++;
+
+  // ── Octave bands ────────────────────────────
+  for (let b = 0; b < 8; b++) {
+    const fc   = BANDS[b].fc;
+    const fLow = fc / Math.SQRT2;
+    const fHigh = fc * Math.SQRT2;
+    const bLo   = Math.max(1, Math.floor(fLow  / binWidth));
+    const bHi   = Math.min(freqData.length - 1, Math.ceil(fHigh / binWidth));
+
+    let pow = 0, n = 0;
+    for (let i = bLo; i <= bHi; i++) { pow += Math.pow(10, freqData[i] / 10); n++; }
+
+    const corr = useMicCurve ? micCurve[b] : 0;
+    const bd   = n > 0 && pow > 0
+      ? 10 * Math.log10(pow / n) + calOffset + REF_LEVEL + corr
+      : DB_MIN - 5;
+    bandDb[b] = isFinite(bd) ? Math.max(DB_MIN - 10, Math.min(DB_MAX, bd)) : DB_MIN - 5;
+
+    // Peak hold + decay
+    if (bandDb[b] > bandPeak[b]) {
+      bandPeak[b] = bandDb[b];
+      peakHold[b] = 0;
+    } else {
+      peakHold[b]++;
+      if (peakHold[b] > PEAK_HOLD) bandPeak[b] = Math.max(bandDb[b], bandPeak[b] - PEAK_DECAY);
+    }
+  }
+
+  // ── History @ ~10 fps ───────────────────────
+  if (ts - lastHistTs > 100) {
+    history.push(currentDb);
+    if (history.length > HIST_LEN) history.shift();
+    lastHistTs = ts;
+  }
+
+  // ── Render ──────────────────────────────────
+  updateMeterUI();
+  const activeId = document.querySelector('.tab.active')?.id;
+  if      (activeId === 'tab-spectrum') renderSpectrum();
+  else if (activeId === 'tab-history')  renderHistory();
+
+  animFrame = requestAnimationFrame(processFrame);
+}
+
+/* ═══════════════════════════════════════════════
+   UI UPDATES
+═══════════════════════════════════════════════ */
+function updateMeterUI() {
+  let color = C.green;
+  if      (currentDb > 90) color = C.red;
+  else if (currentDb > 80) color = C.orange;
+  else if (currentDb > 70) color = C.yellow;
+
+  const el = document.getElementById('db-number');
+  el.textContent = running ? currentDb.toFixed(1) : '---';
+  el.style.color = running ? color : C.onSurf;
+
+  document.getElementById('s-min').textContent = minDb !== null ? minDb.toFixed(1) : '---';
+  document.getElementById('s-avg').textContent = avgCount > 0   ? (avgSum / avgCount).toFixed(1) : '---';
+  document.getElementById('s-max').textContent = maxDb !== null ? maxDb.toFixed(1) : '---';
+  document.getElementById('h-cur').textContent = running ? currentDb.toFixed(1) : '---';
+
+  renderMeterBar();
+}
+
+/* ═══════════════════════════════════════════════
+   CANVAS HELPERS
+═══════════════════════════════════════════════ */
+function resizeCanvas(canvas) {
+  const dpr  = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W    = Math.floor(rect.width);
+  const H    = Math.floor(rect.height);
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [W, H];
+}
+
+function rrect(ctx, x, y, w, h, r) {
+  if (w < 2*r) r = w/2;
+  if (h < 2*r) r = h/2;
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y);
+  ctx.arcTo(x+w, y, x+w, y+r, r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+  ctx.lineTo(x+r, y+h);
+  ctx.arcTo(x, y+h, x, y+h-r, r);
+  ctx.lineTo(x, y+r);
+  ctx.arcTo(x, y, x+r, y, r);
+  ctx.closePath();
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER: METER BAR
+═══════════════════════════════════════════════ */
+function renderMeterBar() {
+  const canvas = document.getElementById('meter-canvas');
+  const [W, H] = resizeCanvas(canvas);
+  const ctx    = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const R = 6;
+
+  // Track background
+  rrect(ctx, 0, 0, W, H, R);
+  ctx.fillStyle = C.outlineV;
+  ctx.fill();
+
+  if (!running || currentDb <= DB_MIN) return;
+
+  // Colored gradient bar
+  const frac = Math.max(0, Math.min(1, (currentDb - DB_MIN) / DB_RANGE));
+  const fillW = Math.max(R * 2, W * frac);
+
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0,                             C.green);
+  grad.addColorStop((70 - DB_MIN) / DB_RANGE,      '#8BC34A');
+  grad.addColorStop((80 - DB_MIN) / DB_RANGE,      C.yellow);
+  grad.addColorStop((90 - DB_MIN) / DB_RANGE,      C.orange);
+  grad.addColorStop((100 - DB_MIN) / DB_RANGE,     C.red);
+  grad.addColorStop(1,                             '#B71C1C');
+
+  rrect(ctx, 0, 0, fillW, H, R);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Threshold marker at 85 dB
+  const markX = W * (85 - DB_MIN) / DB_RANGE;
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(markX - 1, 0, 2, H);
+
+  // Scale ticks
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.font = '8px Roboto';
+  ctx.textAlign = 'center';
+  for (let db = 40; db <= 110; db += 10) {
+    const x = W * (db - DB_MIN) / DB_RANGE;
+    ctx.fillRect(x, H - 6, 1, 6);
+    if (db % 20 === 0) ctx.fillText(db, x, H - 8);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER: SPECTRUM
+═══════════════════════════════════════════════ */
+function renderSpectrum() {
+  const canvas = document.getElementById('spectrum-canvas');
+  const [W, H] = resizeCanvas(canvas);
+  if (H <= 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const PL = 30, PR = 6, PT = 8, PB = 24;
+  const cW  = W - PL - PR;
+  const cH  = H - PT - PB;
+  const N   = BANDS.length;
+  const gap = cW / N;
+  const bW  = gap * 0.55;
+
+  // Horizontal grid
+  ctx.strokeStyle = C.outlineV;
+  ctx.lineWidth   = 0.5;
+  ctx.font        = '9px Roboto';
+  ctx.fillStyle   = C.onSurfVar;
+  ctx.textAlign   = 'right';
+  for (let db = DB_MIN; db <= DB_MAX; db += 10) {
+    const y = PT + cH * (1 - (db - DB_MIN) / DB_RANGE);
+    ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke();
+    if (db % 20 === 0) ctx.fillText(db, PL - 3, y + 3);
+  }
+
+  // Bars + peaks
+  for (let b = 0; b < N; b++) {
+    const x    = PL + b * gap + (gap - bW) / 2;
+    const val  = Math.max(DB_MIN, Math.min(DB_MAX, bandDb[b]));
+    const bH2  = Math.max(2, cH * (val - DB_MIN) / DB_RANGE);
+    const barY = PT + cH - bH2;
+    const r    = Math.min(5, bW / 2);
+
+    // Color by level
+    let col = C.primary;
+    if (val > 90) col = C.red;
+    else if (val > 80) col = C.orange;
+    else if (val > 70) col = C.yellow;
+
+    // Bar fill (semi-transparent)
+    rrect(ctx, x, barY, bW, bH2, r);
+    ctx.fillStyle = col + 'AA';
+    ctx.fill();
+
+    // Bar stroke
+    rrect(ctx, x, barY, bW, bH2, r);
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+
+    // Peak hold line
+    const pVal = Math.max(DB_MIN, Math.min(DB_MAX, bandPeak[b]));
+    const pY   = PT + cH * (1 - (pVal - DB_MIN) / DB_RANGE);
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.moveTo(x + 2, pY); ctx.lineTo(x + bW - 2, pY); ctx.stroke();
+
+    // Frequency label
+    ctx.fillStyle = C.onSurfVar;
+    ctx.font      = '9px Roboto';
+    ctx.textAlign = 'center';
+    ctx.fillText(BANDS[b].label, x + bW / 2, H - 6);
+  }
+
+  // "Hz" label
+  ctx.fillStyle = C.onSurfVar;
+  ctx.font      = '8px Roboto';
+  ctx.textAlign = 'right';
+  ctx.fillText('Hz', W - PR, H - 6);
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER: HISTORY
+═══════════════════════════════════════════════ */
+function renderHistory() {
+  const canvas = document.getElementById('history-canvas');
+  const [W, H] = resizeCanvas(canvas);
+  if (H <= 0 || history.length < 2) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const PL = 30, PR = 6, PT = 8, PB = 20;
+  const cW  = W - PL - PR;
+  const cH  = H - PT - PB;
+
+  // Grid
+  ctx.strokeStyle = C.outlineV;
+  ctx.lineWidth   = 0.5;
+  ctx.font        = '9px Roboto';
+  ctx.fillStyle   = C.onSurfVar;
+  ctx.textAlign   = 'right';
+  for (let db = DB_MIN; db <= DB_MAX; db += 20) {
+    const y = PT + cH * (1 - (db - DB_MIN) / DB_RANGE);
+    ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke();
+    ctx.fillText(db, PL - 3, y + 3);
+  }
+
+  // Build path
+  ctx.beginPath();
+  const total = HIST_LEN;
+  for (let i = 0; i < history.length; i++) {
+    const x  = PL + cW * (i / (total - 1));
+    const db = Math.max(DB_MIN, Math.min(DB_MAX, history[i]));
+    const y  = PT + cH * (1 - (db - DB_MIN) / DB_RANGE);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = C.primary;
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  ctx.stroke();
+
+  // Gradient fill
+  const lastX = PL + cW * ((history.length - 1) / (total - 1));
+  const baseY = PT + cH;
+  ctx.lineTo(lastX, baseY);
+  ctx.lineTo(PL, baseY);
+  ctx.closePath();
+  const grd = ctx.createLinearGradient(0, PT, 0, baseY);
+  grd.addColorStop(0, C.primary + '55');
+  grd.addColorStop(1, C.primary + '00');
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  // Live dot
+  const lastDb = history[history.length - 1];
+  const dotX = PL + cW * ((history.length - 1) / (total - 1));
+  const dotY = PT + cH * (1 - (lastDb - DB_MIN) / DB_RANGE);
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+  ctx.fillStyle = C.primary;
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Time axis labels
+  ctx.fillStyle = C.onSurfVar;
+  ctx.font      = '9px Roboto';
+  ctx.textAlign = 'left';
+  ctx.fillText('−30s', PL, H - 3);
+  ctx.textAlign = 'right';
+  ctx.fillText('agora', W - PR, H - 3);
+}
+
+/* ═══════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════ */
+function switchTab(btn) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const id = 'tab-' + btn.dataset.tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  setTimeout(() => {
+    if      (id === 'tab-spectrum') renderSpectrum();
+    else if (id === 'tab-history')  renderHistory();
+    else if (id === 'tab-meter')    renderMeterBar();
+  }, 30);
+}
+
+/* ═══════════════════════════════════════════════
+   SETTINGS
+═══════════════════════════════════════════════ */
+function setWeighting(btn) {
+  document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  weighting = btn.dataset.w;
+  document.getElementById('weight-badge').textContent = 'dB' + weighting;
+}
+
+function onCalChange(input) {
+  calOffset = parseFloat(input.value);
+  document.getElementById('cal-lbl').textContent =
+    (calOffset >= 0 ? '+' : '') + calOffset.toFixed(1) + ' dB';
+}
+
+function toggleMicCurve() {
+  useMicCurve = !useMicCurve;
+  document.getElementById('mc-toggle').classList.toggle('on', useMicCurve);
+  document.getElementById('mc-sliders').style.display = useMicCurve ? 'flex' : 'none';
+}
+
+function buildMicCurveSliders() {
+  const c = document.getElementById('mc-sliders');
+  c.innerHTML = BANDS.map((b, i) => `
+    <div class="mc-row">
+      <span class="mc-fc">${b.label}</span>
+      <input type="range" min="-20" max="20" step="0.5" value="0"
+        oninput="micCurve[${i}]=parseFloat(this.value);
+                 this.nextElementSibling.textContent=
+                   (micCurve[${i}]>=0?'+':'')+micCurve[${i}].toFixed(1)+' dB'">
+      <span class="sl-val" style="min-width:46px">0.0 dB</span>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════
+   HISTORY LONG-PRESS RESET
+═══════════════════════════════════════════════ */
+let _lpTimer = null;
+function histLpStart() { _lpTimer = setTimeout(resetStats, 800); }
+function histLpEnd()   { clearTimeout(_lpTimer); }
+
+function resetStats() {
+  history = []; avgSum = 0; avgCount = 0;
+  minDb = null; maxDb = null;
+  bandPeak.fill(DB_MIN); peakHold.fill(0);
+  renderHistory();
+}
+
+document.getElementById('history-canvas').addEventListener('touchstart',  histLpStart, {passive:true});
+document.getElementById('history-canvas').addEventListener('touchend',    histLpEnd);
+document.getElementById('history-canvas').addEventListener('touchcancel', histLpEnd);
+document.getElementById('history-canvas').addEventListener('mousedown',   histLpStart);
+document.getElementById('history-canvas').addEventListener('mouseup',     histLpEnd);
+
+/* ═══════════════════════════════════════════════
+   RESIZE
+═══════════════════════════════════════════════ */
+window.addEventListener('resize', () => {
+  renderMeterBar();
+  const id = document.querySelector('.tab.active')?.id;
+  if (id === 'tab-spectrum') renderSpectrum();
+  if (id === 'tab-history')  renderHistory();
+});
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+buildMicCurveSliders();
+renderMeterBar();
+</script>
+</body>
+</html>
